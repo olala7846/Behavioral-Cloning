@@ -4,13 +4,13 @@ from keras.layers import Dense
 from keras.layers.convolutional import Convolution2D
 from keras.layers.core import Activation
 from keras.layers.core import Flatten
+from keras.layers.core import Dropout
+from keras.layers.pooling import MaxPooling2D
 from scipy.misc import imread
-from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
 
 import numpy as np
 import csv
-import logging
 
 
 # read image file path and angles from csv file
@@ -48,30 +48,45 @@ def generate_data(paths, angles, batch_size=128):
         for offset in range(0, batch_size, total_size):
             stop = offset + batch_size
             batch_paths = paths[offset:stop]
-            _X_batch = [imread(path).astype(np.float32) for path in batch_paths]
+            _X_batch = [imread(p).astype(np.float32) for p in batch_paths]
             _X_batch = np.array(_X_batch)
             _X_batch_normalized = normalize(_X_batch)
             _y_batch = angles[offset:stop]
             yield _X_batch_normalized, _y_batch
 
 
-# TODO(Olala): define model here
+# Define and compile model
 model = Sequential()
-model.add(Convolution2D(
-    32, 3, 3, border_mode='valid',
-    subsample=(2, 2), input_shape=(160, 320, 3)))
-model.add(Convolution2D(64, 3, 3, border_mode='valid', subsample=(2, 2)))
-model.add(Convolution2D(128, 3, 3, border_mode='valid', subsample=(1, 2)))
+model.add(Convolution2D(32, 3, 3, input_shape=(160, 320, 3)))
+model.add(MaxPooling2D((2, 2)))
+model.add(Dropout(0.5))
+model.add(Activation('relu'))
+
+model.add(Convolution2D(64, 3, 3))
+model.add(MaxPooling2D((2, 2)))
+model.add(Dropout(0.5))
+model.add(Activation('relu'))
+
+model.add(Convolution2D(128, 3, 3))
+model.add(MaxPooling2D((2, 2)))
+model.add(Dropout(0.5))
+model.add(Activation('relu'))
+
 model.add(Flatten())
-model.add(Dense(300))
-model.add(Dense(150))
-model.add(Dense(32))
+model.add(Dense(256))
+model.add(Dropout(0.5))
+model.add(Activation('relu'))
+
+model.add(Dense(64))
+model.add(Dropout(0.5))
+model.add(Activation('relu'))
+
 model.add(Dense(1))
 model.compile('Adam', 'mse', metrics=['mse'])
 
 # Train model
 batch_size = 128
-nb_epochs = 100
+nb_epochs = 50
 gen = generate_data(urls_train, angles_train, batch_size=batch_size)
 samples_per_epoch = int(len(urls_train)/batch_size)
 model.fit_generator(gen, samples_per_epoch, nb_epochs)
