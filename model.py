@@ -26,7 +26,7 @@ with open('./driving_log.csv', 'r') as f:
         angles.append(angle)
 
     image_urls = np.array(image_urls)
-    angles = np.array(angles)
+    angles = np.array(angles).astype(np.float32)
 
 # train test split
 urls_train, urls_test, angles_train, angles_test = train_test_split(
@@ -41,18 +41,42 @@ def normalize(X):
     return a + (X - x_min) * (b - a) / (x_max - x_min)
 
 
+def _gen_single_data(paths, angles):
+    """Generate single image angle pair"""
+    num_paths = paths.shape[0]
+    num_angles = angles.shape[0]
+    assert num_paths == num_angles
+
+    while True:
+        for i in range(num_paths):
+            img_data = imread(paths[i]).astype(np.float32)
+            angle = angles[i]
+            yield img_data, angle
+
+
 def generate_data(paths, angles, batch_size=128):
     """Generator that generates batch data from paths and angles"""
+    single_data_generator = _gen_single_data(paths, angles)
+
     while True:
-        total_size = len(paths)
-        for offset in range(0, batch_size, total_size):
-            stop = offset + batch_size
-            batch_paths = paths[offset:stop]
-            _X_batch = [imread(p).astype(np.float32) for p in batch_paths]
-            _X_batch = np.array(_X_batch)
-            _X_batch_normalized = normalize(_X_batch)
-            _y_batch = angles[offset:stop]
-            yield _X_batch_normalized, _y_batch
+        _X_batch = []
+        _y_batch = []
+        for i in range(batch_size):
+            img_data, angle = next(single_data_generator)
+            # flip half of the images to avoid inbalance training data
+            if i % 2 == 1:
+                img_data = np.fliplr(img_data)
+                angle = -1.0 * angle
+
+            # normalize image data into [-0.5~0.5]
+            img_normalized = normalize(img_data)
+            _X_batch.append(img_normalized)
+            _y_batch.append(angle)
+
+        # turns python list into numpy array
+        _X_batch = np.array(_X_batch)
+        _y_batch = np.array(_y_batch)
+        yield _X_batch, _y_batch
 
 
 # Define and compile model
