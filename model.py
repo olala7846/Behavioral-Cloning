@@ -12,13 +12,16 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 import logging
 import csv
+import os
 
 
 # read image file path and angles from csv file
 image_urls = []
 angles = []
-with open('./driving_log.csv', 'r') as f:
+with open('./data/driving_log.csv', 'r') as f:
     csv_reader = csv.reader(f)
+    header = next(csv_reader)
+    logging.info('header:', header)
     for row in csv_reader:
         (img_center, img_left, img_right,
          angle, throttle, break_, speed,) = row
@@ -32,6 +35,7 @@ with open('./driving_log.csv', 'r') as f:
 # train test split
 urls_train, urls_test, angles_train, angles_test = train_test_split(
     image_urls, angles, test_size=0.33)
+logging.info('%d training data' % urls_train.shape[0])
 
 
 def normalize(X):
@@ -57,8 +61,9 @@ def generate_data(paths, angles, batch_size=128):
             y_batch = []
             for i in range(paths_batch.shape[0]):
                 a_path = paths_batch[i]
+                file_path = os.path.join(os.getcwd(), 'data', a_path)
                 a_angle = angles_batch[i]
-                img_data = imread(a_path).astype(np.float32)
+                img_data = imread(file_path).astype(np.float32)
 
                 if i % 2 == 1:
                     img_data = np.fliplr(img_data)
