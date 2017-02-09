@@ -1,4 +1,6 @@
 .DS_Store
-IMG/
 Default Mac desktop Universal.app/
 driving_log.csv
+data/
+__MACOSX/
+__pycache__/
