@@ -8,7 +8,7 @@ from keras.layers.core import Dropout
 from keras.layers.pooling import MaxPooling2D
 from scipy.misc import imread
 from sklearn.model_selection import train_test_split
-from preprocess import preprocess_img
+from preprocess import crop_img
 
 import random
 import numpy as np
@@ -32,9 +32,9 @@ with open('./data/driving_log.csv', 'r') as f:
             brake, speed) = row
         steering = float(steering)
 
-        # randomly skip 60% dataset with steering angel zero to
+        # randomly skip 80% dataset with steering angel zero to
         # increase training speed and avoid skew dataset
-        drop_rate = 0.6
+        drop_rate = 0.85
         if steering == 0.0 and random.random() < drop_rate:
             continue
 
@@ -42,7 +42,7 @@ with open('./data/driving_log.csv', 'r') as f:
         steerings.append(steering)
 
         # Add recovery dataset using left, right camerea image
-        recovery_steering = 10./25.
+        recovery_steering = 7./25.
         img_paths.append(left)
         steerings.append(steering + recovery_steering)
         img_paths.append(right)
@@ -57,14 +57,30 @@ paths_train, paths_test, steerings_train, steerings_test = train_test_split(
 logging.info('%d training data' % paths_train.shape[0])
 
 
-def load_img(img_path):
+def prepare_data(img_path, steering, augment=False):
+    """ Prepare image data by croping and resiz eimage
+    if augment is True, will randomly shift and flip
+    image data in order to prevent skewed training set
+    """
+    # randomly add a horizontal offset on image
+    offset = random.randint(-10, 10) if augment else 0
     abs_path = os.path.join(current_dir, 'data', img_path)
-    img = imread(abs_path).astype(np.float32)
-    return preprocess_img(img)
+    raw_img = imread(abs_path).astype(np.float32)
+    img = crop_img(raw_img, offset)
+    steering = steering - (0.1/25. * offset)
+
+    # randomly flip image to balance left/right turn
+    if augment and random.random() > 0.5:
+        img = np.fliplr(img)
+        steering = -steering
+
+    return img, steering
 
 
-def batches(paths, steerings, batch_size=128):
-    """Generator that generates data batch by batch"""
+def batches(paths, steerings, batch_size=128, training=False):
+    """Generator that generates data batch by batch
+    validating: boolean indicates whether training or validating
+    """
     while True:
         num_paths = paths.shape[0]
         num_steerings = steerings.shape[0]
@@ -80,16 +96,10 @@ def batches(paths, steerings, batch_size=128):
             for i in range(paths_batch.shape[0]):
                 a_path = paths_batch[i]
                 a_steering = steerings_batch[i]
-                a_img = load_img(a_path)
-
-                # randomly slip half images in order to
-                # balance left/right training data
-                if random.random() > 0.5:
-                    a_img = np.fliplr(a_img)
-                    a_steering = -0.1 * a_steering
-
-                X_batch.append(a_img)
-                y_batch.append(a_steering)
+                # set augment=True while training
+                img, steering = prepare_data(a_path, a_steering, training)
+                X_batch.append(img)
+                y_batch.append(steering)
 
             X_batch = np.array(X_batch)
             y_batch = np.array(y_batch)
@@ -99,30 +109,30 @@ def batches(paths, steerings, batch_size=128):
 # Define and compile model
 logging.info('Creating model')
 model = Sequential()
-# 3@40x160
-model.add(Convolution2D(24, 5, 5, input_shape=(40, 160, 3)))
+# 3@40x150
+model.add(Convolution2D(24, 5, 5, input_shape=(40, 150, 3)))
 model.add(MaxPooling2D((2, 2)))
 model.add(Activation('relu'))
 
-# 24@18x78
+# 24@18x73
 model.add(Convolution2D(36, 5, 5))
 model.add(MaxPooling2D((2, 2)))
 model.add(Activation('relu'))
 
-# 36@7x37
+# 36@7x34
 model.add(Convolution2D(48, 5, 5))
 model.add(Activation('relu'))
 
-# 48@3x33
+# 48@3x30
 model.add(Convolution2D(64, 3, 3))
 model.add(Activation('relu'))
 
-# 64@1x31
+# 64@1x28
 model.add(Flatten())
 model.add(Dropout(0.5))
 
-# 1x1984
-model.add(Dense(100))
+# 1x1792
+model.add(Dense(120))
 model.add(Activation('relu'))
 model.add(Dropout(0.5))
 
@@ -138,7 +148,7 @@ model.compile('Adam', 'mse', metrics=['mse'])
 # Train model
 logging.info('Start training...')
 batch_size = 128
-nb_epochs = 5
+nb_epochs = 25
 
 train_batches = batches(paths_train, steerings_train, batch_size=batch_size)
 samples_per_epoch = paths_train.shape[0]
