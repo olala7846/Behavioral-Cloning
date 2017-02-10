@@ -148,18 +148,17 @@ model.compile('Adam', 'mse', metrics=['mse'])
 # Train model
 logging.info('Start training...')
 batch_size = 128
-nb_epochs = 25
+nb_epochs = 1
 
-train_batches = batches(paths_train, steerings_train, batch_size=batch_size)
+train_batches = batches(
+    paths_train, steerings_train, batch_size=batch_size, training=True)
 samples_per_epoch = paths_train.shape[0]
+model.fit_generator(train_batches, samples_per_epoch, nb_epochs)
+
+print('Evaluate on testing data')
 test_batches = batches(paths_test, steerings_test, batch_size=batch_size)
 test_size = paths_test.shape[0]
-
-model.fit_generator(
-    train_batches, samples_per_epoch, nb_epochs,
-    validation_data=test_batches,
-    nb_val_samples=test_size
-)
+model.eveluate_generator(test_batches, test_size)
 
 # Save trained model
 model.save('my_model.h5')
