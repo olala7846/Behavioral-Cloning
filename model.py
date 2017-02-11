@@ -19,42 +19,61 @@ import os
 
 # Preprocess:
 # read driving_log.csv and prepare training dataset
-img_paths = []
+images = []
 steerings = []
 current_dir = os.getcwd()
 
-with open('./data/driving_log.csv', 'r') as f:
+# TODO(Olala) should not have recovery data in testing set
+driving_log = './data/driving_log.csv'
+print('Reading data from %s ...' % driving_log)
+with open(driving_log, 'r') as f:
     csv_reader = csv.reader(f, skipinitialspace=True)
-    header = next(csv_reader)
-    logging.info('header:', header)
+    headers = next(csv_reader)
+    print('columns:', headers)
     for row in csv_reader:
         (center, left, right, steering, throttle,
             brake, speed) = row
-        steering = float(steering)
-
-        # randomly skip 80% dataset with steering angel zero to
-        # increase training speed and avoid skew dataset
-        drop_rate = 0.85
-        if steering == 0.0 and random.random() < drop_rate:
-            continue
-
-        img_paths.append(center)
-        steerings.append(steering)
-
-        # Add recovery dataset using left, right camerea image
-        recovery_steering = 7./25.
-        img_paths.append(left)
-        steerings.append(steering + recovery_steering)
-        img_paths.append(right)
-        steerings.append(steering - recovery_steering)
-
-    img_paths = np.array(img_paths)
-    steerings = np.array(steerings).astype(np.float32)
+        images.append((center, left, right))
+        steerings.append(float(steering))
 
 # train test split
-paths_train, paths_test, steerings_train, steerings_test = train_test_split(
-    img_paths, steerings, test_size=0.2)
-logging.info('%d training data' % paths_train.shape[0])
+print('Train test split ...')
+images_train, images_test, steerings_train, steerings_test = train_test_split(
+    images, steerings, test_size=0.2, random_state=42)
+
+# prepare testing data
+center_img_path_tests = []
+for center, left, right in images_test:
+    center_img_path_tests.append(center)
+paths_test = np.array(center_img_path_tests)
+steerings_test = np.array(steerings_test)
+print('validation set size %d' % steerings_test.shape[0])
+
+# prepare (augment) training data
+paths_train_aug, steerings_train_aug = [], []
+
+for camera_images, steering in zip(images_train, steerings_train):
+    # randomly skip 80% dataset with steering angel zero to
+    # increase training speed and avoid skew dataset
+    drop_rate = 0.9
+    if steering == 0.0 and random.random() < drop_rate:
+        continue
+
+    center, left, right = camera_images
+    paths_train_aug.append(center)
+    steerings_train_aug.append(steering)
+
+    # Add recovery dataset using left, right camerea image
+    recovery_steering = 6./25.
+    paths_train_aug.append(left)
+    steerings_train_aug.append(steering + recovery_steering)
+    paths_train_aug.append(right)
+    steerings_train_aug.append(steering - recovery_steering)
+
+paths_train = np.array(paths_train_aug)
+steerings_train = np.array(steerings_train_aug)
+print('training set size %d' % steerings_train.shape[0])
+print('\n\n')
 
 
 def prepare_data(img_path, steering, augment=False):
@@ -97,7 +116,8 @@ def batches(paths, steerings, batch_size=128, training=False):
                 a_path = paths_batch[i]
                 a_steering = steerings_batch[i]
                 # set augment=True while training
-                img, steering = prepare_data(a_path, a_steering, training)
+                img, steering = prepare_data(
+                    a_path, a_steering, augment=training)
                 X_batch.append(img)
                 y_batch.append(steering)
 
@@ -107,7 +127,7 @@ def batches(paths, steerings, batch_size=128, training=False):
 
 
 # Define and compile model
-logging.info('Creating model')
+print('Creating model...')
 model = Sequential()
 # 3@40x150
 model.add(Convolution2D(24, 5, 5, input_shape=(40, 150, 3)))
@@ -146,19 +166,25 @@ model.add(Dense(1))
 model.compile('Adam', 'mse', metrics=['mse'])
 
 # Train model
-logging.info('Start training...')
+print('Validating traing / testing data size ...')
+assert paths_train.shape[0] == steerings_train.shape[0]
+assert paths_test.shape[0] == steerings_test.shape[0]
+print('Data looks good!')
+
+train_size = paths_train.shape[0]
+test_size = paths_test.shape[0]
 batch_size = 128
 nb_epochs = 1
 
+# TODO(Olala): periodically save model checkpoint for early stopping
+print('Start training... batch size %d' % batch_size)
 train_batches = batches(
     paths_train, steerings_train, batch_size=batch_size, training=True)
-samples_per_epoch = paths_train.shape[0]
-model.fit_generator(train_batches, samples_per_epoch, nb_epochs)
+model.fit_generator(train_batches, train_size, nb_epochs)
 
 print('Evaluate on testing data')
 test_batches = batches(paths_test, steerings_test, batch_size=batch_size)
-test_size = paths_test.shape[0]
-model.eveluate_generator(test_batches, test_size)
+model.evaluate_generator(test_batches, test_size)
 
 # Save trained model
 model.save('my_model.h5')
