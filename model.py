@@ -12,6 +12,7 @@ from keras.callbacks import ModelCheckpoint
 from scipy.misc import imread
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
+from math import e, sqrt, pi
 
 import random
 import numpy as np
@@ -26,6 +27,19 @@ images = []
 steerings = []
 current_dir = os.getcwd()
 
+
+def gauss(x, mu=0, sigma=0.075):
+    a = 1/(sigma*sqrt(2*pi))
+    return a*e**(-0.5*(float(x-mu)/sigma)**2)
+
+max_gauss = gauss(0)
+
+
+def _should_skip_angle(steering, max_drop_rate=0.5):
+    steer_skip_rate = gauss(steering)*max_drop_rate/max_gauss
+    return random.random() > steer_skip_rate
+
+
 driving_log = './data/driving_log.csv'
 print('Reading data from %s ...' % driving_log)
 with open(driving_log, 'r') as f:
@@ -36,6 +50,9 @@ with open(driving_log, 'r') as f:
         (center, left, right, steering, throttle,
             brake, speed) = row
         steering = float(steering)
+
+        if _should_skip_angle(steering):
+            continue
 
         images.append(center)
         steerings.append(steering)
@@ -186,7 +203,7 @@ train_generator = batches(
     paths_train, steerings_train, batch_size=batch_size, training=True)
 test_generator = batches(paths_test, steerings_test, batch_size=batch_size)
 
-save_checkpoint = ModelCheckpoint('./my_checkpoint', period=5)
+save_checkpoint = ModelCheckpoint('checkpoint.{epoch:02d}.h5', period=5)
 model.fit_generator(
     train_generator, train_size, nb_epochs,
     validation_data=test_generator,
