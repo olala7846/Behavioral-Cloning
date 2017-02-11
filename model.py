@@ -174,7 +174,7 @@ print('Data looks good!')
 train_size = paths_train.shape[0]
 test_size = paths_test.shape[0]
 batch_size = 128
-nb_epochs = 1
+nb_epochs = 30
 
 # TODO(Olala): periodically save model checkpoint for early stopping
 print('Start training... batch size %d' % batch_size)
@@ -184,7 +184,8 @@ model.fit_generator(train_batches, train_size, nb_epochs)
 
 print('Evaluate on testing data')
 test_batches = batches(paths_test, steerings_test, batch_size=batch_size)
-model.evaluate_generator(test_batches, test_size)
+scores = model.evaluate_generator(test_batches, test_size)
+print('loss:', scores[0])
 
 # Save trained model
 model.save('my_model.h5')
