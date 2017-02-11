@@ -5,6 +5,7 @@ from keras.layers.convolutional import Convolution2D
 from keras.layers.core import Activation
 from keras.layers.core import Flatten
 from keras.layers.core import Dropout
+from keras.layers.core import Reshape
 from keras.layers.pooling import MaxPooling2D
 from keras.layers import Cropping2D
 from keras.layers import Lambda
@@ -143,38 +144,47 @@ def _normalize(X):
 print('Creating model...')
 model = Sequential()
 
-# crop image
+# crop image 3@160x320 -> 3@80x320
 model.add(Cropping2D(
-    cropping=((50, 30), (10, 10)),
+    cropping=((50, 30), (0, 0)),
     input_shape=(160, 320, 3)))
+
+# reshape image by 1/4
+model.add(Reshape(40, 160))
 
 # normalize rgb data [0~255] to [-1~1]
 model.add(Lambda(_normalize))
 
-# 3@40x150
+# 3@40x160
 model.add(Convolution2D(24, 5, 5))
 model.add(MaxPooling2D((2, 2)))
 model.add(Activation('relu'))
 
-# 24@18x73
+# 24@18x78
 model.add(Convolution2D(36, 5, 5))
 model.add(MaxPooling2D((2, 2)))
 model.add(Activation('relu'))
 
-# 36@7x34
-model.add(Convolution2D(48, 5, 5))
+# 36@7x37
+model.add(Convolution2D(48, 3, 3))
+model.add(MaxPooling2D((2, 2)))
 model.add(Activation('relu'))
 
-# 48@3x30
+# 48@5x35
 model.add(Convolution2D(64, 3, 3))
 model.add(Activation('relu'))
 
-# 64@1x28
+# 64@3x33
+model.add(Convolution2D(64, 3, 3))
+model.add(MaxPooling2D((2, 2)))
+model.add(Activation('relu'))
+
+# 64@1x16
 model.add(Flatten())
 model.add(Dropout(0.5))
 
-# 1x1792
-model.add(Dense(120))
+# 1x1024
+model.add(Dense(110))
 model.add(Activation('relu'))
 model.add(Dropout(0.5))
 

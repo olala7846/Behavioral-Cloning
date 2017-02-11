@@ -1,6 +1,8 @@
 .DS_Store
 Default Mac desktop Universal.app/
+beta_simulator_mac.app/
 driving_log.csv
+.ipynb_checkpoints/
 data/
 __MACOSX/
 __pycache__/
