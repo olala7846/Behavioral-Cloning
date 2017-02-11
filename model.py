@@ -75,7 +75,7 @@ def prepare_data(img_path, steering, random_flip=False):
     if augment is True, will randomly shift and flip
     image data in order to prevent skewed training set
     """
-    abs_path = os.path.join(current_dir, 'data', img_path)
+    abs_path = os.path.join(current_dir, img_path)
     img = imread(abs_path).astype(np.float32)
 
     # randomly flip image to balance left/right turn
@@ -103,7 +103,7 @@ def batches(paths, steerings, batch_size=128, training=False):
             paths_b = paths[offset:stop]
             steerings_b = steerings[offset:stop]
 
-            for i in range(batch_size):
+            for i in range(paths_b.shape[0]):
                 img, steering = prepare_data(
                     paths_b[i], steerings_b[i], random_flip=training)
                 X_batch.append(img)
@@ -179,14 +179,14 @@ print('Data looks good!')
 train_size = paths_train.shape[0]
 test_size = paths_test.shape[0]
 batch_size = 128
-nb_epochs = 2
+nb_epochs = 30
 
 print('Start training... batch size %d' % batch_size)
 train_generator = batches(
     paths_train, steerings_train, batch_size=batch_size, training=True)
 test_generator = batches(paths_test, steerings_test, batch_size=batch_size)
 
-save_checkpoint = ModelCheckpoint('./my_checkpoint', period=1)
+save_checkpoint = ModelCheckpoint('./my_checkpoint', period=5)
 model.fit_generator(
     train_generator, train_size, nb_epochs,
     validation_data=test_generator,
