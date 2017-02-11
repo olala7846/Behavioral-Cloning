@@ -6,24 +6,26 @@ from keras.layers.core import Activation
 from keras.layers.core import Flatten
 from keras.layers.core import Dropout
 from keras.layers.pooling import MaxPooling2D
+from keras.layers import Cropping2D
+from keras.layers import Lambda
+from keras.callbacks import ModelCheckpoint
 from scipy.misc import imread
 from sklearn.model_selection import train_test_split
-from preprocess import crop_img
+from sklearn.utils import shuffle
 
 import random
 import numpy as np
-import logging
 import csv
 import os
 
 
+random_state = 42
 # Preprocess:
 # read driving_log.csv and prepare training dataset
 images = []
 steerings = []
 current_dir = os.getcwd()
 
-# TODO(Olala) should not have recovery data in testing set
 driving_log = './data/driving_log.csv'
 print('Reading data from %s ...' % driving_log)
 with open(driving_log, 'r') as f:
@@ -33,63 +35,51 @@ with open(driving_log, 'r') as f:
     for row in csv_reader:
         (center, left, right, steering, throttle,
             brake, speed) = row
-        images.append((center, left, right))
-        steerings.append(float(steering))
+        steering = float(steering)
+
+        images.append(center)
+        steerings.append(steering)
+
+        recovery = 6./25.
+        images.append(left)
+        steerings.append(steering + recovery)
+        images.append(right)
+        steerings.append(steering - recovery)
+
 
 # train test split
 print('Train test split ...')
-images_train, images_test, steerings_train, steerings_test = train_test_split(
-    images, steerings, test_size=0.2, random_state=42)
+images, steerings = shuffle(images, steerings, random_state=random_state)
+paths_train, paths_test, steerings_train, steerings_test = train_test_split(
+    images, steerings, test_size=0.2, random_state=random_state)
 
 # prepare testing data
-center_img_path_tests = []
-for center, left, right in images_test:
-    center_img_path_tests.append(center)
-paths_test = np.array(center_img_path_tests)
+paths_test = np.array(paths_test)
 steerings_test = np.array(steerings_test)
+assert paths_test.shape[0] == steerings_test.shape[0]
 print('validation set size %d' % steerings_test.shape[0])
 
-# prepare (augment) training data
-paths_train_aug, steerings_train_aug = [], []
-
-for camera_images, steering in zip(images_train, steerings_train):
-    # randomly skip 80% dataset with steering angel zero to
-    # increase training speed and avoid skew dataset
-    drop_rate = 0.9
-    if steering == 0.0 and random.random() < drop_rate:
-        continue
-
-    center, left, right = camera_images
-    paths_train_aug.append(center)
-    steerings_train_aug.append(steering)
-
-    # Add recovery dataset using left, right camerea image
-    recovery_steering = 6./25.
-    paths_train_aug.append(left)
-    steerings_train_aug.append(steering + recovery_steering)
-    paths_train_aug.append(right)
-    steerings_train_aug.append(steering - recovery_steering)
-
-paths_train = np.array(paths_train_aug)
-steerings_train = np.array(steerings_train_aug)
-print('training set size %d' % steerings_train.shape[0])
-print('\n\n')
+# prepare training data
+paths_train = np.array(paths_train)
+steerings_train = np.array(steerings_train)
+assert paths_train.shape[0] == steerings_train.shape[0]
+print('validation set size %d' % paths_train.shape[0])
 
 
-def prepare_data(img_path, steering, augment=False):
+# TODO(Olala): avoid skewed data
+# TODO(Olala): augment data
+
+
+def prepare_data(img_path, steering, random_flip=False):
     """ Prepare image data by croping and resiz eimage
     if augment is True, will randomly shift and flip
     image data in order to prevent skewed training set
     """
-    # randomly add a horizontal offset on image
-    offset = random.randint(-10, 10) if augment else 0
     abs_path = os.path.join(current_dir, 'data', img_path)
-    raw_img = imread(abs_path).astype(np.float32)
-    img = crop_img(raw_img, offset)
-    steering = steering - (0.1/25. * offset)
+    img = imread(abs_path).astype(np.float32)
 
     # randomly flip image to balance left/right turn
-    if augment and random.random() > 0.5:
+    if random_flip and random.random() > 0.5:
         img = np.fliplr(img)
         steering = -steering
 
@@ -100,24 +90,22 @@ def batches(paths, steerings, batch_size=128, training=False):
     """Generator that generates data batch by batch
     validating: boolean indicates whether training or validating
     """
+    num_paths = paths.shape[0]
+    num_steerings = steerings.shape[0]
+    assert num_paths == num_steerings
+
     while True:
-        num_paths = paths.shape[0]
-        num_steerings = steerings.shape[0]
-        assert num_paths == num_steerings
-
         for offset in range(0, num_paths, batch_size):
-            stop = offset + batch_size
-            paths_batch = paths[offset:stop]
-            steerings_batch = steerings[offset:stop]
-
             X_batch = []
             y_batch = []
-            for i in range(paths_batch.shape[0]):
-                a_path = paths_batch[i]
-                a_steering = steerings_batch[i]
-                # set augment=True while training
+
+            stop = offset + batch_size
+            paths_b = paths[offset:stop]
+            steerings_b = steerings[offset:stop]
+
+            for i in range(batch_size):
                 img, steering = prepare_data(
-                    a_path, a_steering, augment=training)
+                    paths_b[i], steerings_b[i], random_flip=training)
                 X_batch.append(img)
                 y_batch.append(steering)
 
@@ -126,11 +114,28 @@ def batches(paths, steerings, batch_size=128, training=False):
             yield X_batch, y_batch
 
 
+def _normalize(X):
+    a = -0.1
+    b = 0.1
+    x_min = 0
+    x_max = 255
+    return a + (X - x_min) * (b - a) / (x_max - x_min)
+
+
 # Define and compile model
 print('Creating model...')
 model = Sequential()
+
+# crop image
+model.add(Cropping2D(
+    cropping=((50, 30), (10, 10)),
+    input_shape=(160, 320, 3)))
+
+# normalize rgb data [0~255] to [-1~1]
+model.add(Lambda(_normalize))
+
 # 3@40x150
-model.add(Convolution2D(24, 5, 5, input_shape=(40, 150, 3)))
+model.add(Convolution2D(24, 5, 5))
 model.add(MaxPooling2D((2, 2)))
 model.add(Activation('relu'))
 
@@ -174,19 +179,22 @@ print('Data looks good!')
 train_size = paths_train.shape[0]
 test_size = paths_test.shape[0]
 batch_size = 128
-nb_epochs = 30
+nb_epochs = 2
 
-# TODO(Olala): periodically save model checkpoint for early stopping
 print('Start training... batch size %d' % batch_size)
-train_batches = batches(
+train_generator = batches(
     paths_train, steerings_train, batch_size=batch_size, training=True)
-model.fit_generator(train_batches, train_size, nb_epochs)
+test_generator = batches(paths_test, steerings_test, batch_size=batch_size)
 
-print('Evaluate on testing data')
-test_batches = batches(paths_test, steerings_test, batch_size=batch_size)
-scores = model.evaluate_generator(test_batches, test_size)
-print('loss:', scores[0])
+save_checkpoint = ModelCheckpoint('./my_checkpoint', period=1)
+model.fit_generator(
+    train_generator, train_size, nb_epochs,
+    validation_data=test_generator,
+    nb_val_samples=test_size,
+    callbacks=[save_checkpoint])
+
 
 # Save trained model
+print('Finished! saving model')
 model.save('my_model.h5')
 
