@@ -5,8 +5,8 @@ from keras.layers.convolutional import Convolution2D
 from keras.layers.core import Activation
 from keras.layers.core import Flatten
 from keras.layers.core import Dropout
-from keras.layers.core import Reshape
 from keras.layers.pooling import MaxPooling2D
+from keras.layers.pooling import AveragePooling2D
 from keras.layers import Cropping2D
 from keras.layers import Lambda
 from keras.callbacks import ModelCheckpoint
@@ -29,7 +29,7 @@ steerings = []
 current_dir = os.getcwd()
 
 
-def gauss(x, mu=0, sigma=0.075):
+def gauss(x, mu=0, sigma=0.05):
     a = 1/(sigma*sqrt(2*pi))
     return a*e**(-0.5*(float(x-mu)/sigma)**2)
 
@@ -58,7 +58,7 @@ with open(driving_log, 'r') as f:
         images.append(center)
         steerings.append(steering)
 
-        recovery = 6./25.
+        recovery = 5./25.
         images.append(left)
         steerings.append(steering + recovery)
         images.append(right)
@@ -149,50 +149,51 @@ model.add(Cropping2D(
     cropping=((50, 30), (0, 0)),
     input_shape=(160, 320, 3)))
 
-# reshape image by 1/4
-model.add(Reshape(40, 160))
-
 # normalize rgb data [0~255] to [-1~1]
 model.add(Lambda(_normalize))
 
+# Learn new color space and average pooling
+# reshape image by 1/4
+model.add(Convolution2D(3, 1, 1))
+model.add(AveragePooling2D(pool_size=(2, 2), strides=(2, 2)))
+print(model.layers[-1].output_shape)
+
 # 3@40x160
-model.add(Convolution2D(24, 5, 5))
+model.add(Convolution2D(24, 5, 5, activation='relu'))
 model.add(MaxPooling2D((2, 2)))
-model.add(Activation('relu'))
+print(model.layers[-1].output_shape)
 
 # 24@18x78
-model.add(Convolution2D(36, 5, 5))
-model.add(MaxPooling2D((2, 2)))
-model.add(Activation('relu'))
+model.add(Convolution2D(36, 5, 5, activation='relu'))
+model.add(MaxPooling2D((2, 2), (1, 2)))
+print(model.layers[-1].output_shape)
 
 # 36@7x37
-model.add(Convolution2D(48, 3, 3))
+model.add(Convolution2D(48, 3, 3, activation='relu'))
 model.add(MaxPooling2D((2, 2)))
-model.add(Activation('relu'))
+print(model.layers[-1].output_shape)
 
 # 48@5x35
-model.add(Convolution2D(64, 3, 3))
-model.add(Activation('relu'))
+model.add(Convolution2D(64, 3, 3, activation='relu'))
+print(model.layers[-1].output_shape)
 
 # 64@3x33
-model.add(Convolution2D(64, 3, 3))
-model.add(MaxPooling2D((2, 2)))
-model.add(Activation('relu'))
+model.add(Convolution2D(64, 3, 3, activation='relu'))
+print(model.layers[-1].output_shape)
 
-# 64@1x16
+# 64@1x30
 model.add(Flatten())
 model.add(Dropout(0.5))
+print(model.layers[-1].output_shape)
 
-# 1x1024
-model.add(Dense(110))
-model.add(Activation('relu'))
+# 1x1920
+model.add(Dense(100, activation='relu'))
 model.add(Dropout(0.5))
+print(model.layers[-1].output_shape)
 
-model.add(Dense(50))
-model.add(Activation('relu'))
+model.add(Dense(50, activation='relu'))
 
-model.add(Dense(10))
-model.add(Activation('relu'))
+model.add(Dense(10, activation='relu'))
 
 model.add(Dense(1))
 model.compile('Adam', 'mse', metrics=['mse'])
@@ -213,7 +214,7 @@ train_generator = batches(
     paths_train, steerings_train, batch_size=batch_size, training=True)
 test_generator = batches(paths_test, steerings_test, batch_size=batch_size)
 
-save_checkpoint = ModelCheckpoint('checkpoint.{epoch:02d}.h5', period=5)
+save_checkpoint = ModelCheckpoint('checkpoint.{epoch:02d}.h5', period=10)
 model.fit_generator(
     train_generator, train_size, nb_epochs,
     validation_data=test_generator,
