@@ -29,16 +29,16 @@ steerings = []
 current_dir = os.getcwd()
 
 
-def gauss(x, mu=0, sigma=0.05):
+def gauss(x, mu=0, sigma=0.18):
     a = 1/(sigma*sqrt(2*pi))
     return a*e**(-0.5*(float(x-mu)/sigma)**2)
 
 max_gauss = gauss(0)
 
 
-def _should_skip_angle(steering, max_drop_rate=0.5):
-    steer_skip_rate = gauss(steering)*max_drop_rate/max_gauss
-    return random.random() > steer_skip_rate
+def _should_drop(steering, drop_rate=0.7):
+    steer_drop_rate = drop_rate * gauss(steering) / max_gauss
+    return random.random() < steer_drop_rate
 
 
 driving_log = './data/driving_log.csv'
@@ -52,13 +52,13 @@ with open(driving_log, 'r') as f:
             brake, speed) = row
         steering = float(steering)
 
-        if _should_skip_angle(steering):
+        if _should_drop(steering):
             continue
 
         images.append(center)
         steerings.append(steering)
 
-        recovery = 5./25.
+        recovery = 0.1
         images.append(left)
         steerings.append(steering + recovery)
         images.append(right)
